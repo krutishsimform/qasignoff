@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA / Client Sign-Off Document Generator</title>
+
+<!-- ============ EXTERNAL LIBRARIES (CDN) ============ -->
+<!-- Mammoth.js : .docx -> HTML conversion for imported documents -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<!-- PDF.js : render imported PDF pages onto canvases -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- html2pdf : export generated document as PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<!-- FileSaver : save HTML / DOCX blobs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+<style>
+/* ==========================================================
+   DESIGN TOKENS — tweak these to re-brand the whole app
+   ========================================================== */
+:root{
+  --navy:        #0f2a4a;   /* dark navy header / primary   */
+  --navy-2:      #16395f;
+  --blue:        #2f6fb2;   /* accent blue                  */
+  --lightblue:   #dbeafe;   /* light blue section headers   */
+  --lightblue-2: #eaf3fc;
+  --grey-bg:     #f4f6f9;
+  --grey-line:   #d8dee7;
+  --text:        #1e2936;
+  --muted:       #5b6b7d;
+  --green:       #1e7e34;
+  --green-bg:    #e2f3e6;
+  --orange:      #d97a06;
+  --white:       #ffffff;
+  --radius:      8px;
+  --shadow:      0 2px 10px rgba(15,42,74,.10);
+  font-size: 15px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:"Segoe UI",Arial,Helvetica,sans-serif;
+  background:var(--grey-bg);
+  color:var(--text);
+  line-height:1.5;
+}
+
+/* ============ APP HEADER ============ */
+.app-header{
+  background:linear-gradient(135deg,var(--navy) 0%,var(--navy-2) 100%);
+  color:#fff;
+  padding:18px 28px;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;
+  position:sticky;top:0;z-index:50;
+  box-shadow:var(--shadow);
+}
+.app-header h1{font-size:1.25rem;font-weight:600;letter-spacing:.3px}
+.app-header h1 span{color:#9cc3ec;font-weight:400}
+.header-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* ============ BUTTONS ============ */
+.btn{
+  border:none;border-radius:6px;cursor:pointer;
+  padding:8px 14px;font-size:.85rem;font-weight:600;
+  transition:filter .15s,transform .05s;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.btn:active{transform:translateY(1px)}
+.btn:hover{filter:brightness(1.1)}
+.btn-primary {background:var(--blue);color:#fff}
+.btn-navy    {background:#fff;color:var(--navy)}
+.btn-ghost   {background:transparent;color:#cfe2f5;border:1px solid #4a6c93}
+.btn-success {background:var(--green);color:#fff}
+.btn-danger  {background:#c0392b;color:#fff}
+.btn-grey    {background:#e3e8ef;color:var(--navy)}
+.btn-sm{padding:5px 10px;font-size:.78rem}
+
+/* ============ LAYOUT : form left / preview right ============ */
+.layout{
+  display:grid;
+  grid-template-columns:minmax(380px,34%) 1fr;
+  gap:20px;padding:20px 24px;max-width:1800px;margin:0 auto;
+}
+@media (max-width:1000px){ .layout{grid-template-columns:1fr} }
+
+/* ============ FORM PANEL ============ */
+.form-panel{
+  background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);
+  overflow:hidden;align-self:start;
+  max-height:calc(100vh - 110px);display:flex;flex-direction:column;
+}
+@media (max-width:1000px){ .form-panel{max-height:none} }
+.form-scroll{overflow-y:auto;padding:0 0 24px}
+.panel-title{
+  background:var(--navy);color:#fff;padding:12px 18px;
+  font-size:.95rem;font-weight:600;letter-spacing:.4px;
+}
+.fsection{border-bottom:1px solid var(--grey-line)}
+.fsection > summary{
+  list-style:none;cursor:pointer;user-select:none;
+  background:var(--lightblue);color:var(--navy);
+  padding:10px 18px;font-weight:600;font-size:.88rem;
+  display:flex;justify-content:space-between;align-items:center;
+}
+.fsection > summary::after{content:"▾";font-size:.8rem;color:var(--blue);transition:transform .2s}
+.fsection:not([open]) > summary::after{transform:rotate(-90deg)}
+.fsection > summary::-webkit-details-marker{display:none}
+.fbody{padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.fbody .full{grid-column:1 / -1}
+label.fl{display:block;font-size:.74rem;font-weight:600;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px}
+label.fl .req{color:#c0392b}
+input[type=text],input[type=date],input[type=url],select,textarea{
+  width:100%;padding:8px 10px;border:1px solid var(--grey-line);border-radius:6px;
+  font-size:.86rem;font-family:inherit;color:var(--text);background:#fff;
+}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--blue);outline-offset:-1px}
+input.invalid,select.invalid{border-color:#c0392b;background:#fdf1ef}
+textarea{resize:vertical;min-height:64px}
+
+/* checkbox grid for scope */
+.scope-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.scope-grid label{
+  display:flex;align-items:center;gap:8px;font-size:.84rem;
+  background:var(--lightblue-2);border:1px solid var(--grey-line);
+  border-radius:6px;padding:7px 9px;cursor:pointer;
+}
+.scope-grid input{accent-color:var(--blue)}
+
+/* dynamic row tables in the form */
+.dyn-row{
+  display:grid;gap:6px;margin-bottom:8px;align-items:start;
+  background:var(--lightblue-2);border:1px solid var(--grey-line);
+  border-radius:6px;padding:8px;
+}
+.dyn-row .rm{
+  background:#fff;border:1px solid #e3b6b0;color:#c0392b;border-radius:5px;
+  cursor:pointer;font-size:.75rem;font-weight:700;padding:4px 8px;justify-self:end;
+}
+.dyn-row .rm:hover{background:#fdeeec}
+.add-row-btn{
+  width:100%;border:1.5px dashed var(--blue);background:#fff;color:var(--blue);
+  border-radius:6px;padding:7px;font-weight:600;font-size:.82rem;cursor:pointer;
+}
+.add-row-btn:hover{background:var(--lightblue-2)}
+
+/* signature pad */
+.sig-wrap{border:1.5px dashed var(--grey-line);border-radius:6px;background:#fff;position:relative}
+.sig-wrap canvas{display:block;width:100%;height:140px;border-radius:6px;cursor:crosshair;touch-action:none}
+.sig-hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#b8c2cf;font-size:.85rem;pointer-events:none}
+.sig-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.sig-saved-note{font-size:.78rem;color:var(--green);font-weight:600;display:none;margin-top:6px}
+
+/* validation error box */
+#errorBox{
+  display:none;margin:12px 18px 0;background:#fdf1ef;border:1px solid #e8b7b0;
+  border-left:4px solid #c0392b;border-radius:6px;padding:10px 14px;
+  color:#8e2a1f;font-size:.83rem;
+}
+#errorBox ul{margin:4px 0 0 18px}
+
+/* ============ PREVIEW PANEL & TABS ============ */
+.preview-panel{display:flex;flex-direction:column;gap:0;min-width:0}
+.tabs{display:flex;gap:6px;background:transparent;margin-bottom:0}
+.tab-btn{
+  padding:10px 20px;border:none;cursor:pointer;font-weight:600;font-size:.86rem;
+  border-radius:8px 8px 0 0;background:#dde4ec;color:var(--muted);
+}
+.tab-btn.active{background:var(--navy);color:#fff}
+.tab-content{
+  background:#fff;border-radius:0 var(--radius) var(--radius) var(--radius);
+  box-shadow:var(--shadow);min-height:70vh;padding:24px;display:none;overflow:auto;
+}
+.tab-content.active{display:block}
+.empty-state{
+  text-align:center;color:var(--muted);padding:80px 20px;
+}
+.empty-state .icon{font-size:2.6rem;margin-bottom:10px;opacity:.45}
+#pdfContainer canvas{display:block;margin:0 auto 14px;max-width:100%;box-shadow:0 1px 6px rgba(0,0,0,.18)}
+#importedContent{font-size:.92rem}
+#importedContent img{max-width:100%}
+#importedContent table{border-collapse:collapse;width:100%;margin:10px 0}
+#importedContent td,#importedContent th{border:1px solid var(--grey-line);padding:6px 9px}
+.import-meta{
+  background:var(--lightblue-2);border:1px solid var(--grey-line);border-radius:6px;
+  padding:8px 12px;font-size:.8rem;color:var(--muted);margin-bottom:14px;
+  display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+}
+
+/* ============ STATUS BADGE COLORS ============ */
+.badge{
+  display:inline-block;padding:5px 14px;border-radius:20px;
+  font-weight:700;font-size:.8rem;letter-spacing:.4px;white-space:nowrap;
+}
+.badge.green {background:var(--green-bg);color:var(--green);border:1.5px solid var(--green)}
+.badge.orange{background:#fdf0e0;color:#b45f06;border:1.5px solid #d97a06}
+.badge.red   {background:#fdeceb;color:#b03024;border:1.5px solid #c0392b}
+.badge.grey  {background:#eef1f5;color:var(--muted);border:1.5px solid #b8c2cf}
+
+/* ==========================================================
+   GENERATED DOCUMENT — executive / corporate sign-off style
+   ========================================================== */
+.doc{
+  max-width:860px;margin:0 auto;background:#fff;color:#1d2733;
+  font-size:.9rem;
+}
+.doc-header{
+  background:var(--navy);color:#fff;padding:30px 36px 26px;
+  border-bottom:5px solid var(--blue);
+}
+.doc-header .company{font-size:.78rem;letter-spacing:2.5px;text-transform:uppercase;color:#9cc3ec;margin-bottom:8px}
+.doc-header h1{font-size:1.65rem;font-weight:700;letter-spacing:.5px;margin-bottom:4px}
+.doc-header .sub{color:#c6d9ee;font-size:.95rem}
+.doc-header .head-badge{margin-top:14px}
+.doc-body{padding:30px 36px 40px}
+.doc h2.sec{
+  background:var(--lightblue);color:var(--navy);
+  padding:8px 14px;font-size:1rem;font-weight:700;
+  border-left:5px solid var(--blue);border-radius:0 4px 4px 0;
+  margin:26px 0 12px;
+}
+.doc h2.sec:first-child{margin-top:0}
+.doc table.dt{width:100%;border-collapse:collapse;margin:6px 0 4px;font-size:.86rem}
+.doc table.dt th{
+  background:var(--navy);color:#fff;text-align:left;
+  padding:8px 11px;font-weight:600;font-size:.8rem;letter-spacing:.3px;
+}
+.doc table.dt td{border:1px solid var(--grey-line);padding:8px 11px;vertical-align:top}
+.doc table.dt tr:nth-child(even) td{background:#f7fafd}
+.doc table.kv td:first-child{
+  background:var(--lightblue-2);font-weight:600;width:32%;color:var(--navy);
+}
+.doc ul.feat{margin:6px 0 4px 22px}
+.doc ul.feat li{margin-bottom:5px}
+.doc .scope-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.doc .scope-tag{
+  background:var(--lightblue-2);border:1px solid var(--blue);color:var(--navy);
+  border-radius:16px;padding:4px 13px;font-size:.8rem;font-weight:600;
+}
+.doc .overview-p{color:#33414f;text-align:justify}
+.doc .status-banner{
+  border-radius:8px;padding:18px 20px;margin-top:8px;
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  border:1.5px solid var(--grey-line);background:#f7fafd;
+}
+.doc .status-banner.green {background:var(--green-bg);border-color:var(--green)}
+.doc .status-banner.orange{background:#fdf0e0;border-color:#d97a06}
+.doc .status-banner.red   {background:#fdeceb;border-color:#c0392b}
+.doc .status-banner .big{font-size:1.15rem;font-weight:800;letter-spacing:.5px}
+.doc .status-banner.green  .big{color:var(--green)}
+.doc .status-banner.orange .big{color:#b45f06}
+.doc .status-banner.red    .big{color:#b03024}
+.doc .status-banner .note{font-size:.84rem;color:#46566a;flex:1;min-width:200px}
+.sev{font-weight:700;padding:2px 9px;border-radius:12px;font-size:.74rem;white-space:nowrap}
+.sev.High,.sev.Critical{background:#fdeceb;color:#b03024}
+.sev.Medium{background:#fdf0e0;color:#b45f06}
+.sev.Low{background:var(--green-bg);color:var(--green)}
+
+/* signature block inside document */
+.sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-top:18px}
+@media (max-width:700px){.sig-grid{grid-template-columns:1fr}}
+.sig-box{border:1px solid var(--grey-line);border-radius:8px;padding:14px;text-align:center;background:#fbfcfe}
+.sig-box .line{
+  height:74px;border-bottom:2px solid var(--navy);margin-bottom:8px;
+  display:flex;align-items:flex-end;justify-content:center;
+}
+.sig-box .line img{max-height:70px;max-width:100%}
+.sig-box .who{font-weight:700;color:var(--navy);font-size:.88rem}
+.sig-box .role{font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.sig-box .date{font-size:.78rem;color:var(--muted);margin-top:4px}
+.doc-footer{
+  border-top:2px solid var(--lightblue);margin-top:30px;padding-top:12px;
+  font-size:.74rem;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;
+}
+
+/* download bar above generated doc */
+.doc-toolbar{
+  display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+  background:var(--lightblue-2);border:1px solid var(--grey-line);
+  border-radius:8px;padding:10px 14px;margin-bottom:18px;
+}
+.doc-toolbar .spacer{flex:1}
+.doc-toolbar .live-badge{font-size:.78rem;color:var(--muted)}
+
+/* validation popup modal */
+.modal-overlay{
+  display:none;position:fixed;inset:0;background:rgba(15,42,74,.55);
+  z-index:200;align-items:center;justify-content:center;padding:20px;
+}
+.modal-overlay.show{display:flex}
+.modal-card{
+  background:#fff;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3);
+  max-width:440px;width:100%;overflow:hidden;animation:pop .18s ease-out;
+}
+@keyframes pop{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
+.modal-head{
+  background:#c0392b;color:#fff;padding:14px 20px;font-weight:700;font-size:1rem;
+}
+.modal-sub{padding:14px 20px 4px;font-size:.86rem;color:var(--muted)}
+.modal-list{list-style:none;padding:10px 20px;display:flex;flex-direction:column;gap:8px}
+.modal-list li{
+  background:#fdf1ef;border:1px solid #e8b7b0;border-left:4px solid #c0392b;
+  border-radius:6px;padding:9px 13px;font-size:.88rem;font-weight:600;color:#8e2a1f;
+  cursor:pointer;transition:background .15s;
+}
+.modal-list li:hover{background:#fbe3df}
+.modal-list li::after{content:"  →  click to fix";font-weight:400;font-size:.75rem;color:#b0726a}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px 18px}
+
+/* toast */
+#toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:var(--navy);color:#fff;padding:11px 22px;border-radius:8px;
+  font-size:.86rem;box-shadow:var(--shadow);opacity:0;transition:all .3s;z-index:99;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* print: only the document */
+@media print{
+  .app-header,.form-panel,.tabs,.doc-toolbar,#tab-import{display:none!important}
+  .layout{display:block;padding:0}
+  .tab-content{box-shadow:none;padding:0}
+  #tab-generated{display:block!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ====================== APP HEADER ====================== -->
+<header class="app-header">
+  <h1>QA / Client Sign-Off <span>Document Generator</span></h1>
+  <div class="header-actions">
+    <button class="btn btn-ghost"  onclick="loadSampleData()">⚡ Load Sample Data</button>
+    <button class="btn btn-ghost"  onclick="resetForm()">↺ Reset Form</button>
+    <button class="btn btn-navy"   onclick="previewFullDocument()">👁 Preview Full Document</button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ====================== LEFT : FORM ====================== -->
+  <aside class="form-panel">
+    <div class="panel-title">SIGN-OFF DETAILS</div>
+    <div id="errorBox"></div>
+    <div class="form-scroll">
+
+      <!-- ---- Import existing document ---- -->
+      <details class="fsection" open>
+        <summary>Import Existing Document</summary>
+        <div class="fbody">
+          <div class="full">
+            <label class="fl" for="importFile">Upload .docx / .pdf / .txt</label>
+            <input type="file" id="importFile" accept=".docx,.pdf,.txt" style="font-size:.82rem">
+            <p style="font-size:.76rem;color:var(--muted);margin-top:6px">
+              The imported document opens in the <b>Imported Document</b> tab so you can
+              compare it with the generated sign-off.
+            </p>
+          </div>
+        </div>
+      </details>
+
+      <!-- ---- Project information ---- -->
+      <details class="fsection" open>
+        <summary>Project Information</summary>
+        <div class="fbody">
+          <div class="full">
+            <label class="fl">Project Name <span class="req">*</span></label>
+            <input type="text" id="projectName" placeholder="e.g. Maybeck AVL Copilot">
+          </div>
+          <div><label class="fl">Phase</label><input type="text" id="phase" placeholder="e.g. Phase 2 / UAT"></div>
+          <div><label class="fl">Build Date</label><input type="date" id="buildDate"></div>
+          <div><label class="fl">Environment</label><input type="text" id="environment" placeholder="e.g. Staging"></div>
+          <div><label class="fl">Testing Period</label><input type="text" id="testingPeriod" placeholder="e.g. 01–10 Jun 2026"></div>
+          <div class="full"><label class="fl">Application URL</label><input type="url" id="appUrl" placeholder="https://"></div>
+          <div><label class="fl">Prepared By <span class="req">*</span></label><input type="text" id="preparedBy"></div>
+          <div><label class="fl">Prepared By – Role</label><input type="text" id="preparedByRole" placeholder="e.g. Sr. QA Engineer"></div>
+          <div><label class="fl">Client Name <span class="req">*</span></label><input type="text" id="clientName"></div>
+          <div><label class="fl">Project Manager</label><input type="text" id="projectManager"></div>
+          <div class="full"><label class="fl">Company Name</label><input type="text" id="companyName" placeholder="e.g. Simform Solutions"></div>
+          <div class="full"><label class="fl">Project Overview</label>
+            <textarea id="projectOverview" placeholder="Short executive summary of what was tested and why…"></textarea>
+          </div>
+        </div>
+      </details>
+
+      <!-- ---- Environment details ---- -->
+      <details class="fsection">
+        <summary>Environment Details</summary>
+        <div class="fbody">
+          <div class="full"><label class="fl">Browser Coverage</label><input type="text" id="browserCoverage" placeholder="Chrome, Edge, Safari, Firefox"></div>
+          <div class="full"><label class="fl">Device Coverage</label><input type="text" id="deviceCoverage" placeholder="Desktop, iPhone 15, Pixel 8…"></div>
+          <div class="full"><label class="fl">Payment Gateway</label><input type="text" id="paymentGateway" placeholder="Stripe (test mode)"></div>
+          <div class="full"><label class="fl">Testing Tools Used</label><input type="text" id="testingTools" placeholder="Postman, BrowserStack, Playwright…"></div>
+        </div>
+      </details>
+
+      <!-- ---- Scope covered ---- -->
+      <details class="fsection">
+        <summary>Scope Covered</summary>
+        <div class="fbody">
+          <div class="full scope-grid" id="scopeGrid">
+            <!-- checkboxes injected by JS -->
+          </div>
+          <div class="full">
+            <label class="fl">Other Scope Items (comma separated)</label>
+            <input type="text" id="scopeOther" placeholder="e.g. Email Notifications, Reports">
+          </div>
+        </div>
+      </details>
+
+      <!-- ---- Modules / features tested (dynamic) ---- -->
+      <details class="fsection">
+        <summary>Modules / Features Tested</summary>
+        <div class="fbody">
+          <div class="full" id="modulesList"></div>
+          <div class="full"><button class="add-row-btn" onclick="addModuleRow()">＋ Add Module</button></div>
+        </div>
+      </details>
+
+      <!-- ---- Testing types performed (dynamic) ---- -->
+      <details class="fsection">
+        <summary>Testing Types Performed</summary>
+        <div class="fbody">
+          <div class="full" id="testTypesList"></div>
+          <div class="full"><button class="add-row-btn" onclick="addTestTypeRow()">＋ Add Testing Type</button></div>
+        </div>
+      </details>
+
+      <!-- ---- Stable / working features ---- -->
+      <details class="fsection">
+        <summary>Stable / Working Features</summary>
+        <div class="fbody">
+          <div class="full">
+            <label class="fl">One feature (or "Group: description") per line</label>
+            <textarea id="stableFeatures" rows="5" placeholder="Authentication: Login, signup and password reset working as expected&#10;Chat: streaming responses stable across browsers"></textarea>
+          </div>
+        </div>
+      </details>
+
+      <!-- ---- Known open observations (dynamic) ---- -->
+      <details class="fsection">
+        <summary>Known Open Observations</summary>
+        <div class="fbody">
+          <div class="full" id="obsList"></div>
+          <div class="full"><button class="add-row-btn" onclick="addObsRow()">＋ Add Observation</button></div>
+        </div>
+      </details>
+
+      <!-- ---- Risks & recommendations (dynamic) ---- -->
+      <details class="fsection">
+        <summary>Risks &amp; Recommendations</summary>
+        <div class="fbody">
+          <div class="full" id="riskList"></div>
+          <div class="full"><button class="add-row-btn" onclick="addRiskRow()">＋ Add Risk</button></div>
+        </div>
+      </details>
+
+      <!-- ---- Final status ---- -->
+      <details class="fsection" open>
+        <summary>Final Sign-Off Status</summary>
+        <div class="fbody">
+          <div class="full">
+            <label class="fl">Final Status <span class="req">*</span></label>
+            <select id="finalStatus">
+              <option value="">— Select status —</option>
+              <option>Approved</option>
+              <option>Conditional Sign-Off</option>
+              <option>Rejected</option>
+              <option>Pending Client Review</option>
+              <option>Fixes Required</option>
+              <option>Ready for UAT</option>
+              <option>Production Release Approved</option>
+            </select>
+            <div style="margin-top:8px" id="statusBadgeLive"></div>
+          </div>
+        </div>
+      </details>
+
+      <!-- ---- Sign-off information ---- -->
+      <details class="fsection" open>
+        <summary>Sign-Off Information</summary>
+        <div class="fbody">
+          <div><label class="fl">QA Sign-Off By</label><input type="text" id="qaSignOffBy"></div>
+          <div><label class="fl">Role</label><input type="text" id="qaRole" placeholder="QA Lead"></div>
+          <div><label class="fl">Sign-Off Date <span class="req">*</span></label><input type="date" id="signOffDate"></div>
+          <div><label class="fl">Sign-Off Environment</label><input type="text" id="soEnvironment" placeholder="Staging"></div>
+          <div><label class="fl">Build / Release Name</label><input type="text" id="buildRelease" placeholder="v2.4.0-rc1"></div>
+          <div><label class="fl">Project Manager</label><input type="text" id="soProjectManager"></div>
+          <div><label class="fl">Client Representative</label><input type="text" id="clientRep"></div>
+          <div><label class="fl">Overall QA Status</label><input type="text" id="overallQaStatus" placeholder="e.g. Stable with minor open items"></div>
+          <div class="full"><label class="fl">Additional Notes</label><textarea id="additionalNotes" rows="3"></textarea></div>
+        </div>
+      </details>
+
+      <!-- ---- Digital signatures (QA + Project Manager) ---- -->
+      <details class="fsection" open>
+        <summary>Digital Signatures</summary>
+        <div class="fbody">
+          <div class="full">
+            <label class="fl">QA Signature</label>
+            <div class="sig-wrap">
+              <canvas id="sigCanvasQA" width="700" height="140"></canvas>
+              <div class="sig-hint" id="sigHintQA">✍ Draw QA signature here</div>
+            </div>
+            <div class="sig-actions">
+              <button class="btn btn-grey btn-sm"    onclick="clearSignature('qa')">Clear</button>
+              <button class="btn btn-primary btn-sm" onclick="saveSignature('qa')">Save to Document</button>
+            </div>
+            <div class="sig-saved-note" id="sigNoteQA">✓ QA signature saved to document preview</div>
+          </div>
+          <div class="full" style="margin-top:12px">
+            <label class="fl">Project Manager Signature</label>
+            <div class="sig-wrap">
+              <canvas id="sigCanvasPM" width="700" height="140"></canvas>
+              <div class="sig-hint" id="sigHintPM">✍ Draw PM signature here</div>
+            </div>
+            <div class="sig-actions">
+              <button class="btn btn-grey btn-sm"    onclick="clearSignature('pm')">Clear</button>
+              <button class="btn btn-primary btn-sm" onclick="saveSignature('pm')">Save to Document</button>
+            </div>
+            <div class="sig-saved-note" id="sigNotePM">✓ PM signature saved to document preview</div>
+          </div>
+        </div>
+      </details>
+
+    </div><!-- /form-scroll -->
+  </aside>
+
+  <!-- ====================== RIGHT : PREVIEWS ====================== -->
+  <main class="preview-panel">
+    <div class="tabs">
+      <button class="tab-btn" id="tabBtnImport"    onclick="switchTab('import')">📄 Imported Document</button>
+      <button class="tab-btn active" id="tabBtnGenerated" onclick="switchTab('generated')">✅ Generated Sign-Off</button>
+    </div>
+
+    <!-- Imported document tab -->
+    <section class="tab-content" id="tab-import">
+      <div class="empty-state" id="importEmpty">
+        <div class="icon">📂</div>
+        <h3>No document imported yet</h3>
+        <p>Use <b>Import Existing Document</b> in the form to upload a .docx, .pdf or .txt file.</p>
+      </div>
+      <div id="importedView" style="display:none">
+        <div class="import-meta">
+          <span id="importFileName"></span>
+          <button class="btn btn-grey btn-sm" onclick="clearImported()">✕ Remove</button>
+        </div>
+        <div id="importedContent"></div>
+        <div id="pdfContainer"></div>
+      </div>
+    </section>
+
+    <!-- Generated sign-off tab -->
+    <section class="tab-content active" id="tab-generated">
+      <div class="doc-toolbar">
+        <button class="btn btn-danger"  onclick="downloadPDF()">⬇ Download PDF</button>
+        <button class="btn btn-primary" onclick="downloadHTML()">⬇ Download HTML</button>
+        <button class="btn btn-success" onclick="downloadDOCX()">⬇ Download DOCX</button>
+        <span class="spacer"></span>
+        <span class="live-badge">● Live preview — updates as you type</span>
+      </div>
+      <div id="docPreview"><!-- generated document injected here --></div>
+    </section>
+  </main>
+</div>
+
+<!-- Validation popup -->
+<div id="valOverlay" class="modal-overlay" onclick="if(event.target===this)closeValModal()">
+  <div class="modal-card">
+    <div class="modal-head">⚠ Cannot generate preview yet</div>
+    <p class="modal-sub">The following required fields are missing. Click a field to jump to it:</p>
+    <ul id="valList" class="modal-list"></ul>
+    <div class="modal-actions">
+      <button class="btn btn-grey" onclick="closeValModal()">Close</button>
+      <button class="btn btn-primary" id="valFixBtn">Fix First Field</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ==========================================================================
+   QA / CLIENT SIGN-OFF DOCUMENT GENERATOR
+   Single-file app. Sections:
+     1. Constants & state
+     2. Dynamic form rows (modules, testing types, observations, risks)
+     3. Signature pad
+     4. Document import (.docx via Mammoth, .pdf via PDF.js, .txt)
+     5. Document rendering (live preview)
+     6. Validation
+     7. Downloads (PDF / HTML / DOCX)
+     8. Sample data, reset, helpers
+   ========================================================================== */
+
+/* ---------------------------- 1. CONSTANTS & STATE ---------------------------- */
+
+const SCOPE_ITEMS = [
+  "Authentication & User Management",
+  "Chat / AI Features",
+  "RAG / AI Intelligence",
+  "Dashboard & Usage",
+  "Admin Panel",
+  "Landing Page",
+  "UI / UX",
+  "Payment & Checkout"
+];
+
+// final status -> badge color class
+const STATUS_COLOR = {
+  "Approved":                    "green",
+  "Production Release Approved": "green",
+  "Ready for UAT":               "green",
+  "Conditional Sign-Off":        "orange",
+  "Pending Client Review":       "orange",
+  "Fixes Required":              "red",
+  "Rejected":                    "red"
+};
+
+// surface unexpected runtime errors instead of failing silently
+window.addEventListener("error", e => { try { toast("Error: " + e.message); } catch(_){} });
+
+// configure pdf.js worker
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+/* build scope checkboxes */
+const scopeGrid = document.getElementById("scopeGrid");
+SCOPE_ITEMS.forEach((item, i) => {
+  const id = "scope_" + i;
+  const lab = document.createElement("label");
+  lab.innerHTML = `<input type="checkbox" id="${id}" value="${item}"> ${item}`;
+  scopeGrid.appendChild(lab);
+});
+
+/* ---------------------- 2. DYNAMIC FORM ROWS ---------------------- */
+/* Each helper builds a small "card" row with inputs + a remove button.
+   Rows carry css class names used later when reading form state.      */
+
+function makeRow(klass, inner) {
+  const div = document.createElement("div");
+  div.className = "dyn-row " + klass;
+  div.innerHTML = inner + `<button class="rm" title="Remove row" onclick="this.parentElement.remove(); renderDocument()">✕ Remove</button>`;
+  return div;
+}
+
+function addModuleRow(d = {}) {
+  document.getElementById("modulesList").appendChild(makeRow("module-row", `
+    <input type="text" class="m-name"   placeholder="Module name"           value="${esc(d.name||"")}">
+    <input type="text" class="m-feat"   placeholder="Features covered"      value="${esc(d.features||"")}">
+    <select class="m-status">
+      ${["Passed","Passed with Observations","Partially Tested","Failed","Blocked","In Progress"]
+        .map(s=>`<option ${d.status===s?"selected":""}>${s}</option>`).join("")}
+    </select>`));
+}
+
+function addTestTypeRow(d = {}) {
+  document.getElementById("testTypesList").appendChild(makeRow("ttype-row", `
+    <input type="text" class="t-type" placeholder="Testing type (e.g. Functional)" value="${esc(d.type||"")}">
+    <input type="text" class="t-cov"  placeholder="Coverage / description"          value="${esc(d.coverage||"")}">`));
+}
+
+function addObsRow(d = {}) {
+  document.getElementById("obsList").appendChild(makeRow("obs-row", `
+    <input type="text" class="o-area" placeholder="Area / module" value="${esc(d.area||"")}">
+    <select class="o-sev">
+      ${["Low","Medium","High","Critical"].map(s=>`<option ${d.severity===s?"selected":""}>${s}</option>`).join("")}
+    </select>
+    <input type="text" class="o-text"   placeholder="Observation"     value="${esc(d.observation||"")}">
+    <input type="text" class="o-status" placeholder="Current status"  value="${esc(d.status||"")}">`));
+}
+
+function addRiskRow(d = {}) {
+  document.getElementById("riskList").appendChild(makeRow("risk-row", `
+    <input type="text" class="r-risk" placeholder="Risk"            value="${esc(d.risk||"")}">
+    <input type="text" class="r-reco" placeholder="Recommendation"  value="${esc(d.reco||"")}">`));
+}
+
+/* ---------------------- 3. SIGNATURE PAD ---------------------- */
+
+/* Generic signature pad factory — one pad each for QA and Project Manager */
+const sigPads = {};   // key -> { canvas, ctx, drawn, saved, hint, note }
+
+function initSigPad(key, canvasId, hintId, noteId) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.strokeStyle = "#16395f";
+  const pad = { canvas, ctx, drawn: false, saved: null,
+                hint: document.getElementById(hintId),
+                note: document.getElementById(noteId) };
+  let drawing = false;
+  const pos = e => {
+    const r = canvas.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    // map CSS pixels -> canvas pixels
+    return { x: (p.clientX - r.left) * (canvas.width / r.width),
+             y: (p.clientY - r.top)  * (canvas.height / r.height) };
+  };
+  const start = e => { drawing = true; pad.drawn = true; pad.hint.style.display = "none";
+    const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); };
+  const move  = e => { if (!drawing) return;
+    const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); };
+  const end   = () => drawing = false;
+  canvas.addEventListener("mousedown", start);
+  canvas.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", end);
+  canvas.addEventListener("touchstart", start, {passive:false});
+  canvas.addEventListener("touchmove",  move,  {passive:false});
+  canvas.addEventListener("touchend",   end);
+  sigPads[key] = pad;
+}
+
+function clearSignature(key) {
+  const p = sigPads[key]; if (!p) return;
+  p.ctx.clearRect(0, 0, p.canvas.width, p.canvas.height);
+  p.drawn = false; p.saved = null;
+  p.hint.style.display = "flex";
+  p.note.style.display = "none";
+  renderDocument();
+}
+function saveSignature(key) {
+  const p = sigPads[key]; if (!p) return;
+  if (!p.drawn) { toast("Draw a signature first"); return; }
+  p.saved = p.canvas.toDataURL("image/png");
+  p.note.style.display = "block";
+  renderDocument();
+  toast((key === "pm" ? "PM" : "QA") + " signature added to document");
+}
+
+/* ---------------------- 4. DOCUMENT IMPORT ---------------------- */
+
+document.getElementById("importFile").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const ext = file.name.split(".").pop().toLowerCase();
+  const contentEl = document.getElementById("importedContent");
+  const pdfEl     = document.getElementById("pdfContainer");
+  contentEl.innerHTML = ""; pdfEl.innerHTML = "";
+
+  document.getElementById("importEmpty").style.display  = "none";
+  document.getElementById("importedView").style.display = "block";
+  document.getElementById("importFileName").textContent =
+    `📎 ${file.name}  (${(file.size/1024).toFixed(1)} KB)`;
+  switchTab("import");
+
+  try {
+    let importedText = "";           // plain text of the document (for auto-fill)
+    let tablePairs   = [];           // [label, value] pairs from 2-column table rows
+
+    if (ext === "docx") {
+      // Mammoth converts the .docx to clean HTML
+      const buf = await file.arrayBuffer();
+      const result = await mammoth.convertToHtml({ arrayBuffer: buf });
+      contentEl.innerHTML = result.value || "<p><i>(Empty document)</i></p>";
+      importedText = contentEl.textContent || "";
+      // harvest "Field | Value" rows from any table in the document
+      contentEl.querySelectorAll("tr").forEach(tr => {
+        const cells = tr.querySelectorAll("td,th");
+        if (cells.length === 2)
+          tablePairs.push([cells[0].textContent.trim(), cells[1].textContent.trim()]);
+      });
+    } else if (ext === "pdf") {
+      // PDF.js renders each page onto its own canvas + extracts text for auto-fill
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const page = await pdf.getPage(n);
+        const vp = page.getViewport({ scale: 1.4 });
+        const canvas = document.createElement("canvas");
+        canvas.width = vp.width; canvas.height = vp.height;
+        pdfEl.appendChild(canvas);
+        await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+        const tc = await page.getTextContent();
+        importedText += tc.items.map(i => i.str).join(" ") + "\n";
+      }
+    } else if (ext === "txt") {
+      const text = await file.text();
+      importedText = text;
+      contentEl.innerHTML = `<pre style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:.85rem">${esc(text)}</pre>`;
+    } else {
+      contentEl.innerHTML = `<p style="color:#c0392b">Unsupported file type: .${ext}. Please upload .docx, .pdf or .txt.</p>`;
+      return;
+    }
+
+    // Sync the form (incl. Final Status) with the imported document.
+    // Never let a parsing edge case break the import preview or the app.
+    try {
+      autofillFromImport(importedText, tablePairs, ext === "docx" ? contentEl : null);
+    } catch (err) {
+      console.error("Auto-fill failed:", err);
+      toast("Imported, but auto-fill failed: " + err.message);
+    }
+    toast("Document imported");
+  } catch (err) {
+    contentEl.innerHTML = `<p style="color:#c0392b">Could not read file: ${esc(err.message)}</p>`;
+  }
+});
+
+/* ---- Auto-fill the form from an imported document ----
+   1. Detects the Final Sign-Off Status from the document text so the
+      form badge always matches the imported document.
+   2. Pre-fills form fields from "Field | Value" table rows (docx) or
+      "Label: value" lines (txt / pdf).                              */
+
+// most specific phrases first — "Approved" must be checked last because
+// it is contained inside "Production Release Approved" etc.
+const STATUS_DETECT = [
+  ["Conditional Sign-Off",        /conditional(\s|-)?sign(\s|-)?off|conditionally approved/],
+  ["Production Release Approved", /production release approved/],
+  ["Ready for UAT",               /ready for uat/],
+  ["Pending Client Review",       /pending client review/],
+  ["Fixes Required",              /fixes (required|pending)/],
+  ["Rejected",                    /\brejected\b/],
+  ["Approved",                    /\bapproved\b/]
+];
+
+/* normalize free-text module status to one of the select options */
+function normStatusOption(s) {
+  s = (s || "").toLowerCase();
+  if (/fail/.test(s))                return "Failed";
+  if (/block/.test(s))               return "Blocked";
+  if (/partial/.test(s))             return "Partially Tested";
+  if (/observ|condition/.test(s))    return "Passed with Observations";
+  if (/progress|pending|ongoing/.test(s)) return "In Progress";
+  return "Passed";
+}
+function normSeverity(s) {
+  s = (s || "").toLowerCase();
+  if (/critical|blocker/.test(s)) return "Critical";
+  if (/high|major/.test(s))       return "High";
+  if (/med/.test(s))              return "Medium";
+  return "Low";
+}
+
+/* Identify what kind of data table a header row belongs to.
+   Columns must be DISTINCT cells — this prevents section-band rows like
+   "08 | RISKS & RECOMMENDATIONS" (both words in one cell) from being
+   mistaken for a real data table header. */
+function classifyHeader(header) {
+  const col = re => header.findIndex(c => re.test(c));
+  const csv = col(/severity/), co = col(/observation|issue/);
+  if (csv >= 0 && co >= 0 && csv !== co)
+    return { kind: "obs", ca: col(/area|module/), csv, co, cst: col(/status/) };
+  const cm = col(/module/), cs = col(/status/);
+  if (cm >= 0 && cs >= 0 && cm !== cs)
+    return { kind: "mod", cm, cf: col(/feature|covered|description/), cs };
+  const cr = col(/risk/), crc = col(/recommendation|mitigation/);
+  if (cr >= 0 && crc >= 0 && cr !== crc)
+    return { kind: "risk", cr, crc };
+  const ct = col(/test(ing)? ?type|^type$/), cc = col(/coverage|description|details/);
+  if (ct >= 0 && cc >= 0 && ct !== cc)
+    return { kind: "tt", ct, cc };
+  return null;
+}
+
+/* Walk the imported docx DOM and rebuild the dynamic form sections from
+   recognizable tables. Scans the first few rows of each table for a
+   classifiable header (band rows / "Field|Details" rows are skipped). */
+function parseStructuredTables(root, filled) {
+  const cleared = {};   // clear each form list only once per import
+  const clearOnce = id => { if (!cleared[id]) { document.getElementById(id).innerHTML = ""; cleared[id] = 1; } };
+
+  root.querySelectorAll("table").forEach(tbl => {
+    const rows = [...tbl.querySelectorAll("tr")]
+      .map(tr => [...tr.querySelectorAll("td,th")].map(c => c.textContent.trim()))
+      .filter(r => r.length >= 2);
+
+    for (let i = 0; i < Math.min(rows.length, 4); i++) {
+      const c = classifyHeader(rows[i].map(x => x.toLowerCase()));
+      if (!c) continue;
+      const body = rows.slice(i + 1);
+      if (!body.length) break;
+      const cell = (r, idx) => idx >= 0 && r[idx] ? r[idx] : "";
+
+      if (c.kind === "mod") {
+        clearOnce("modulesList");
+        body.forEach(r => { if (cell(r, c.cm))
+          addModuleRow({ name: cell(r, c.cm), features: cell(r, c.cf),
+                         status: normStatusOption(cell(r, c.cs)) }); });
+        filled.push("Modules");
+      } else if (c.kind === "tt") {
+        clearOnce("testTypesList");
+        body.forEach(r => { if (cell(r, c.ct))
+          addTestTypeRow({ type: cell(r, c.ct), coverage: cell(r, c.cc) }); });
+        filled.push("Testing types");
+      } else if (c.kind === "obs") {
+        clearOnce("obsList");
+        body.forEach(r => { if (cell(r, c.co) || cell(r, c.ca))
+          addObsRow({ area: cell(r, c.ca), severity: normSeverity(cell(r, c.csv)),
+                      observation: cell(r, c.co), status: cell(r, c.cst) }); });
+        filled.push("Observations");
+      } else if (c.kind === "risk") {
+        clearOnce("riskList");
+        body.forEach(r => { if (cell(r, c.cr))
+          addRiskRow({ risk: cell(r, c.cr), reco: cell(r, c.crc) }); });
+        filled.push("Risks");
+      }
+      break;   // one classification per table
+    }
+  });
+}
+
+/* Collect plain-text/bullet content that follows a section heading (the
+   heading may be an h-tag or a one-row "band" table) until the next
+   table or heading — used for Project Overview & Stable Features. */
+function collectSection(root, headRe) {
+  const kids = [...root.children];
+  const idx = kids.findIndex(el =>
+    headRe.test(el.textContent.trim()) && el.textContent.trim().length < 90);
+  if (idx < 0) return [];
+  const out = [];
+  for (let i = idx + 1; i < kids.length; i++) {
+    const el = kids[i], tag = el.tagName;
+    if (tag === "TABLE" || /^H[1-6]$/.test(tag)) break;
+    if (tag === "UL" || tag === "OL")
+      out.push(...[...el.querySelectorAll("li")].map(li => li.textContent.trim()));
+    else { const t = el.textContent.trim(); if (t) out.push(t); }
+  }
+  return out.filter(Boolean);
+}
+
+function autofillFromImport(text, tablePairs, docRoot) {
+  const norm = text.toLowerCase().replace(/[‐‑–—]/g, "-").replace(/\s+/g, " ");
+  const set  = (id, v) => { if (v) document.getElementById(id).value = v; };
+  const filled = [];
+
+  /* --- 1. Final status detection --- */
+  for (const [status, re] of STATUS_DETECT) {
+    if (re.test(norm)) {
+      document.getElementById("finalStatus").value = status;
+      filled.push("Final Status: " + status);
+      break;
+    }
+  }
+
+  /* --- 2. Field extraction --- */
+  // also mine "Label: value" lines from plain text (txt / pdf)
+  const pairs = [...tablePairs];
+  text.split("\n").forEach(line => {
+    const m = line.match(/^\s*([A-Za-z][A-Za-z \/&\-]{1,32}?)\s*[:|]\s*(.{2,})$/);
+    if (m) pairs.push([m[1].trim(), m[2].trim()]);
+  });
+
+  // label-regex -> handler. Handlers may split "Name — Role/Company" values.
+  // Safari-safe, timezone-safe date parser ("10 June 2026", "June 10, 2026", ISO…)
+  const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+  const parseDate = v => {
+    if (!v) return "";
+    v = v.trim();
+    let m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);                       // ISO
+    if (m) return m[0];
+    m = v.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+),?\s+(\d{4})/); // 10 June 2026
+    if (m && MONTHS[m[2].slice(0,3).toLowerCase()] !== undefined)
+      return `${m[3]}-${String(MONTHS[m[2].slice(0,3).toLowerCase()]+1).padStart(2,"0")}-${String(+m[1]).padStart(2,"0")}`;
+    m = v.match(/([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/); // June 10, 2026
+    if (m && MONTHS[m[1].slice(0,3).toLowerCase()] !== undefined)
+      return `${m[3]}-${String(MONTHS[m[1].slice(0,3).toLowerCase()]+1).padStart(2,"0")}-${String(+m[2]).padStart(2,"0")}`;
+    const d = new Date(v);                                              // fallback
+    if (isNaN(d)) return "";
+    return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  };
+  const FIELD_MAP = [
+    [/^project( name)?$/i,            v => set("projectName", v)],
+    [/^phase$/i,                      v => set("phase", v)],
+    [/^build date$/i,                 v => { set("buildDate", parseDate(v)); }],
+    [/^environment$/i,                v => { set("environment", v); set("soEnvironment", v); }],
+    [/^application url$/i,            v => set("appUrl", v)],
+    [/^testing period$/i,             v => set("testingPeriod", v)],
+    [/^prepared by$/i,                v => { const p = v.split(/—|--/); set("preparedBy", p[0].trim()); if (p[1]) set("preparedByRole", p[1].trim()); }],
+    [/^client( name)?$/i,             v => { const p = v.split(/—|--/); if (p.length > 1) { set("clientRep", p[0].trim()); set("clientName", p[1].trim()); } else set("clientName", v); }],
+    [/^client representative$/i,      v => set("clientRep", v)],
+    [/^project manager$/i,            v => { const n = v.split(/—|--/)[0].trim(); set("projectManager", n); set("soProjectManager", n); }],
+    [/^qa sign[ -]?off by$/i,         v => { const p = v.split(/—|--/); set("qaSignOffBy", p[0].trim()); }],
+    [/^role$/i,                       v => set("qaRole", v)],
+    [/^(sign[ -]?off )?date$/i,       v => set("signOffDate", parseDate(v))],
+    [/^build( \/ release( name)?)?$/i,v => set("buildRelease", v)],
+    [/^overall qa status$/i,          v => set("overallQaStatus", v)],
+    [/^browser coverage$/i,           v => set("browserCoverage", v)],
+    [/^device coverage$/i,            v => set("deviceCoverage", v)],
+    [/^payment gateway$/i,            v => set("paymentGateway", v)],
+    [/^testing tools( used)?$/i,      v => set("testingTools", v)],
+    [/^company( name)?$/i,            v => set("companyName", v)]
+  ];
+
+  pairs.forEach(([label, value]) => {
+    if (!value) return;
+    for (const [re, fn] of FIELD_MAP) {
+      if (re.test(label.trim())) { fn(value); filled.push(label); break; }
+    }
+  });
+
+  /* --- 3. Scope checkboxes: tick items mentioned anywhere in the doc --- */
+  document.querySelectorAll("#scopeGrid input").forEach(c => {
+    const tokens = [c.value, ...c.value.split(/[\/&]/).map(t => t.trim())]
+      .filter(t => t.length >= 2);
+    const hit = tokens.some(t =>
+      new RegExp("\\b" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(norm));
+    if (hit) { c.checked = true; }
+  });
+
+  /* --- 4. Structured sections (docx only) --- */
+  if (docRoot) {
+    parseStructuredTables(docRoot, filled);
+
+    // Project Overview: paragraphs following the "Project Overview" heading/band
+    const ov = collectSection(docRoot, /project overview/i);
+    if (ov.length) { set("projectOverview", ov.join("\n")); filled.push("Overview"); }
+
+    // Stable / Working features: bullets or paragraphs after that heading
+    const st = collectSection(docRoot, /stable.*(working|features)|working features/i);
+    if (st.length) { set("stableFeatures", st.join("\n")); filled.push("Stable features"); }
+  }
+
+  /* --- 5. Reveal everything that was filled --- */
+  document.querySelectorAll(".fsection").forEach(d => d.open = true);
+  renderDocument();
+  if (filled.length)
+    toast(`Form auto-populated from imported document (${filled.length} item${filled.length>1?"s":""})`);
+}
+
+function clearImported() {
+  document.getElementById("importedView").style.display = "none";
+  document.getElementById("importEmpty").style.display  = "block";
+  document.getElementById("importFile").value = "";
+}
+
+/* ---------------------- 5. DOCUMENT RENDERING ---------------------- */
+
+const $v = id => document.getElementById(id).value.trim();
+
+/** Collect the whole form into a plain object */
+function getFormState() {
+  const rows = (sel, map) => [...document.querySelectorAll(sel)].map(map)
+      .filter(r => Object.values(r).some(v => v));
+  return {
+    projectName: $v("projectName"), phase: $v("phase"), buildDate: $v("buildDate"),
+    environment: $v("environment"), appUrl: $v("appUrl"), testingPeriod: $v("testingPeriod"),
+    preparedBy: $v("preparedBy"), preparedByRole: $v("preparedByRole"),
+    clientName: $v("clientName"), projectManager: $v("projectManager"),
+    companyName: $v("companyName"), projectOverview: $v("projectOverview"),
+    browserCoverage: $v("browserCoverage"), deviceCoverage: $v("deviceCoverage"),
+    paymentGateway: $v("paymentGateway"), testingTools: $v("testingTools"),
+    scope: [...document.querySelectorAll("#scopeGrid input:checked")].map(c => c.value)
+           .concat($v("scopeOther") ? $v("scopeOther").split(",").map(s=>s.trim()).filter(Boolean) : []),
+    modules: rows(".module-row", r => ({
+      name: r.querySelector(".m-name").value.trim(),
+      features: r.querySelector(".m-feat").value.trim(),
+      status: r.querySelector(".m-status").value })),
+    testTypes: rows(".ttype-row", r => ({
+      type: r.querySelector(".t-type").value.trim(),
+      coverage: r.querySelector(".t-cov").value.trim() })),
+    stableFeatures: $v("stableFeatures").split("\n").map(s=>s.trim()).filter(Boolean),
+    observations: rows(".obs-row", r => ({
+      area: r.querySelector(".o-area").value.trim(),
+      severity: r.querySelector(".o-sev").value,
+      observation: r.querySelector(".o-text").value.trim(),
+      status: r.querySelector(".o-status").value.trim() })),
+    risks: rows(".risk-row", r => ({
+      risk: r.querySelector(".r-risk").value.trim(),
+      reco: r.querySelector(".r-reco").value.trim() })),
+    finalStatus: $v("finalStatus"),
+    qaSignOffBy: $v("qaSignOffBy"), qaRole: $v("qaRole"), signOffDate: $v("signOffDate"),
+    soEnvironment: $v("soEnvironment"), buildRelease: $v("buildRelease"),
+    soProjectManager: $v("soProjectManager"), clientRep: $v("clientRep"),
+    overallQaStatus: $v("overallQaStatus"), additionalNotes: $v("additionalNotes")
+  };
+}
+
+const badge = (status, extra="") =>
+  status ? `<span class="badge ${STATUS_COLOR[status]||"grey"} ${extra}">${esc(status)}</span>`
+         : `<span class="badge grey ${extra}">Status not set</span>`;
+
+const fmtDate = d => d ? new Date(d + "T00:00:00")
+  .toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+
+const or = (v, alt="—") => v ? esc(v) : alt;
+
+/** Build the full sign-off document HTML and inject it in the preview */
+function renderDocument() {
+  const s = getFormState();
+  const col = STATUS_COLOR[s.finalStatus] || "grey";
+
+  /* small builders */
+  const kv = pairs => `<table class="dt kv"><tbody>${
+    pairs.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</tbody></table>`;
+
+  const modulesRows = s.modules.length ? s.modules.map((m,i) =>
+    `<tr><td>${i+1}</td><td>${or(m.name)}</td><td>${or(m.features)}</td>
+     <td><b style="color:${/Fail|Block/.test(m.status)?'#b03024':(/Partial|Progress|Observ/.test(m.status)?'#b45f06':'var(--green)')}">${esc(m.status)}</b></td></tr>`).join("")
+    : `<tr><td colspan="4" style="text-align:center;color:var(--muted)">No modules added</td></tr>`;
+
+  const ttRows = s.testTypes.length ? s.testTypes.map(t =>
+    `<tr><td>${or(t.type)}</td><td>${or(t.coverage)}</td></tr>`).join("")
+    : `<tr><td colspan="2" style="text-align:center;color:var(--muted)">No testing types added</td></tr>`;
+
+  const obsRows = s.observations.length ? s.observations.map((o,i) =>
+    `<tr><td>${i+1}</td><td>${or(o.area)}</td>
+     <td><span class="sev ${o.severity}">${esc(o.severity)}</span></td>
+     <td>${or(o.observation)}</td><td>${or(o.status)}</td></tr>`).join("")
+    : `<tr><td colspan="5" style="text-align:center;color:var(--muted)">No open observations — all clear ✓</td></tr>`;
+
+  const riskRows = s.risks.length ? s.risks.map(r =>
+    `<tr><td>${or(r.risk)}</td><td>${or(r.reco)}</td></tr>`).join("")
+    : `<tr><td colspan="2" style="text-align:center;color:var(--muted)">No risks recorded</td></tr>`;
+
+  /* stable features: "Group: text" lines get a bold prefix */
+  const featLis = s.stableFeatures.length ? s.stableFeatures.map(f => {
+      const m = f.match(/^([^:]{1,60}):\s*(.+)$/);
+      return m ? `<li><b>${esc(m[1])}:</b> ${esc(m[2])}</li>` : `<li>${esc(f)}</li>`;
+    }).join("") : `<li style="color:var(--muted)">Not specified</li>`;
+
+  const scopeTags = s.scope.length
+    ? `<div class="scope-tags">${s.scope.map(x=>`<div class="scope-tag">✓ ${esc(x)}</div>`).join("")}</div>`
+    : `<p style="color:var(--muted)">No scope items selected.</p>`;
+
+  const qaSigImg = sigPads.qa && sigPads.qa.saved
+    ? `<img src="${sigPads.qa.saved}" alt="QA signature">` : "";
+  const pmSigImg = sigPads.pm && sigPads.pm.saved
+    ? `<img src="${sigPads.pm.saved}" alt="PM signature">` : "";
+
+  document.getElementById("docPreview").innerHTML = `
+  <div class="doc" id="docRoot">
+    <div class="doc-header">
+      <div class="company">${or(s.companyName, "COMPANY NAME")}</div>
+      <h1>QA / CLIENT SIGN-OFF DOCUMENT</h1>
+      <div class="sub">${or(s.projectName,"Project Name")}${s.phase ? " — " + esc(s.phase) : ""}</div>
+      <div class="head-badge">${badge(s.finalStatus)}</div>
+    </div>
+    <div class="doc-body">
+
+      <h2 class="sec">1. Project Details</h2>
+      ${kv([
+        ["Project Name", or(s.projectName)],
+        ["Phase", or(s.phase)],
+        ["Build Date", fmtDate(s.buildDate)],
+        ["Environment", or(s.environment)],
+        ["Application URL", s.appUrl ? `<a href="${esc(s.appUrl)}">${esc(s.appUrl)}</a>` : "—"],
+        ["Testing Period", or(s.testingPeriod)],
+        ["Prepared By", or(s.preparedBy) + (s.preparedByRole ? ` <span style="color:var(--muted)">(${esc(s.preparedByRole)})</span>` : "")],
+        ["Client", or(s.clientName)],
+        ["Project Manager", or(s.projectManager)]
+      ])}
+
+      <h2 class="sec">2. Project Overview</h2>
+      <p class="overview-p">${s.projectOverview ? esc(s.projectOverview)
+        : `This document summarises the Quality Assurance activities performed for <b>${or(s.projectName,"the project")}</b> and records the formal sign-off decision between ${or(s.companyName,"the vendor")} and ${or(s.clientName,"the client")}.`}</p>
+
+      <h2 class="sec">3. Environment Details</h2>
+      ${kv([
+        ["Browser Coverage", or(s.browserCoverage)],
+        ["Device Coverage", or(s.deviceCoverage)],
+        ["Payment Gateway", or(s.paymentGateway)],
+        ["Testing Tools Used", or(s.testingTools)]
+      ])}
+
+      <h2 class="sec">4. Scope Covered</h2>
+      ${scopeTags}
+
+      <h2 class="sec">5. Modules / Features Tested</h2>
+      <table class="dt"><thead><tr>
+        <th style="width:40px">#</th><th>Module</th><th>Features Covered</th><th style="width:170px">Status</th>
+      </tr></thead><tbody>${modulesRows}</tbody></table>
+
+      <h2 class="sec">6. Testing Types Performed</h2>
+      <table class="dt"><thead><tr>
+        <th style="width:32%">Testing Type</th><th>Coverage / Description</th>
+      </tr></thead><tbody>${ttRows}</tbody></table>
+
+      <h2 class="sec">7. Stable / Working Features</h2>
+      <ul class="feat">${featLis}</ul>
+
+      <h2 class="sec">8. Known Open Observations</h2>
+      <table class="dt"><thead><tr>
+        <th style="width:40px">#</th><th>Area</th><th style="width:90px">Severity</th><th>Observation</th><th style="width:140px">Current Status</th>
+      </tr></thead><tbody>${obsRows}</tbody></table>
+
+      <h2 class="sec">9. Risks &amp; Recommendations</h2>
+      <table class="dt"><thead><tr>
+        <th style="width:45%">Risk</th><th>Recommendation</th>
+      </tr></thead><tbody>${riskRows}</tbody></table>
+
+      <h2 class="sec">10. Final QA Status</h2>
+      <div class="status-banner ${col}">
+        <span class="big">${or(s.finalStatus,"STATUS NOT SET")}</span>
+        ${badge(s.finalStatus)}
+        <span class="note">${s.overallQaStatus ? esc(s.overallQaStatus)
+          : "Overall QA assessment as of " + (fmtDate(s.signOffDate))}</span>
+      </div>
+
+      <h2 class="sec">11. Sign-Off Information</h2>
+      ${kv([
+        ["QA Sign-Off By", or(s.qaSignOffBy) + (s.qaRole ? ` <span style="color:var(--muted)">(${esc(s.qaRole)})</span>` : "")],
+        ["Sign-Off Date", fmtDate(s.signOffDate)],
+        ["Environment", or(s.soEnvironment || s.environment)],
+        ["Build / Release", or(s.buildRelease)],
+        ["Project Manager", or(s.soProjectManager || s.projectManager)],
+        ["Client Representative", or(s.clientRep)],
+        ["Overall QA Status", or(s.overallQaStatus)],
+        ["Final Status", badge(s.finalStatus)],
+        ["Additional Notes", or(s.additionalNotes)]
+      ])}
+
+      <h2 class="sec">12. Signatures</h2>
+      <div class="sig-grid">
+        <div class="sig-box">
+          <div class="line">${qaSigImg}</div>
+          <div class="who">${or(s.qaSignOffBy,"&nbsp;")}</div>
+          <div class="role">QA Sign-Off By${s.qaRole ? " — " + esc(s.qaRole) : ""}</div>
+          <div class="date">Date: ${fmtDate(s.signOffDate)}</div>
+        </div>
+        <div class="sig-box">
+          <div class="line"></div>
+          <div class="who">${or(s.clientRep || s.clientName,"&nbsp;")}</div>
+          <div class="role">Client Sign-Off By</div>
+          <div class="date">Date: ____________</div>
+        </div>
+        <div class="sig-box">
+          <div class="line">${pmSigImg}</div>
+          <div class="who">${or(s.soProjectManager || s.projectManager,"&nbsp;")}</div>
+          <div class="role">Project Manager</div>
+          <div class="date">Date: ${pmSigImg ? fmtDate(s.signOffDate) : "____________"}</div>
+        </div>
+      </div>
+      <p style="text-align:center;margin-top:18px">${badge(s.finalStatus)}</p>
+
+      <div class="doc-footer">
+        <span>${or(s.companyName,"")} — Confidential</span>
+        <span>Generated on ${new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}</span>
+      </div>
+    </div>
+  </div>`;
+
+  /* live mini-badge next to the status dropdown */
+  document.getElementById("statusBadgeLive").innerHTML = badge(s.finalStatus);
+}
+
+/* auto-update preview on any input/change in the form (debounced) */
+let rT;
+document.querySelector(".form-panel").addEventListener("input",  () => { clearTimeout(rT); rT = setTimeout(renderDocument, 200); });
+document.querySelector(".form-panel").addEventListener("change", () => { clearTimeout(rT); rT = setTimeout(renderDocument, 100); });
+
+/* ---------------------- 6. VALIDATION ---------------------- */
+
+const REQUIRED = [
+  ["projectName", "Project Name"],
+  ["preparedBy",  "Prepared By"],
+  ["clientName",  "Client Name"],
+  ["finalStatus", "Final Status"],
+  ["signOffDate", "Sign-Off Date"]
+];
+
+/* Returns an array of [fieldId, label] for every missing required field
+   (empty array = form is valid). Also updates the inline error box. */
+function validateForm() {
+  const errors = [];
+  REQUIRED.forEach(([id, label]) => {
+    const el = document.getElementById(id);
+    const ok = !!el.value.trim();
+    el.classList.toggle("invalid", !ok);
+    if (!ok) errors.push([id, label]);
+  });
+  const box = document.getElementById("errorBox");
+  if (errors.length) {
+    box.style.display = "block";
+    box.innerHTML = "<b>Please fix the following:</b><ul>" +
+      errors.map(e => `<li>${e[1]} is required.</li>`).join("") + "</ul>";
+  } else box.style.display = "none";
+  return errors;
+}
+
+/* --- validation popup --- */
+function showValidationModal(errors) {
+  const list = document.getElementById("valList");
+  list.innerHTML = errors.map(([id, label]) =>
+    `<li onclick="goToField('${id}')">${label} is required</li>`).join("");
+  document.getElementById("valFixBtn").onclick = () => goToField(errors[0][0]);
+  document.getElementById("valOverlay").classList.add("show");
+}
+function closeValModal() {
+  document.getElementById("valOverlay").classList.remove("show");
+}
+function goToField(id) {
+  closeValModal();
+  const el = document.getElementById(id);
+  const sec = el.closest(".fsection");
+  if (sec) sec.open = true;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  setTimeout(() => el.focus(), 350);
+}
+// Esc closes the popup
+window.addEventListener("keydown", e => { if (e.key === "Escape") closeValModal(); });
+
+function previewFullDocument() {
+  try {
+    const errors = validateForm();
+    if (errors.length) { showValidationModal(errors); return; }
+    renderDocument();
+    switchTab("generated");
+    document.getElementById("tab-generated").scrollIntoView({ behavior: "smooth" });
+    toast("Preview updated ✓");
+  } catch (err) {
+    console.error(err);
+    toast("Preview failed: " + err.message);
+  }
+}
+
+/* ---------------------- 7. DOWNLOADS ---------------------- */
+
+const fileBase = () =>
+  ( $v("projectName") || "QA-SignOff" ).replace(/[^\w\- ]+/g,"").replace(/\s+/g,"-") + "-SignOff";
+
+/* PDF — html2pdf snapshots the generated document */
+function downloadPDF() {
+  const errs = validateForm();
+  if (errs.length) { showValidationModal(errs); return; }
+  renderDocument();
+  const el = document.getElementById("docRoot");
+  toast("Generating PDF…");
+  html2pdf().set({
+    margin:       [8, 8, 10, 8],
+    filename:     fileBase() + ".pdf",
+    image:        { type: "jpeg", quality: 0.97 },
+    html2canvas:  { scale: 2, useCORS: true },
+    jsPDF:        { unit: "mm", format: "a4", orientation: "portrait" },
+    pagebreak:    { mode: ["avoid-all", "css", "legacy"] }
+  }).from(el).save();
+}
+
+/** Wrap current document in a standalone HTML page (styles inlined) */
+function standaloneHTML() {
+  const docHtml = document.getElementById("docPreview").innerHTML;
+  const css = document.querySelector("style").innerHTML;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${esc($v("projectName") || "QA Sign-Off")} — QA Sign-Off</title>
+<style>${css}
+body{background:#fff;padding:20px}</style></head>
+<body>${docHtml}</body></html>`;
+}
+
+/* HTML — saved with FileSaver */
+function downloadHTML() {
+  const errs = validateForm();
+  if (errs.length) { showValidationModal(errs); return; }
+  renderDocument();
+  saveAs(new Blob([standaloneHTML()], { type: "text/html;charset=utf-8" }),
+         fileBase() + ".html");
+}
+
+/* DOCX — Word-compatible HTML wrapped with the MS Office XML namespaces.
+   Word opens this natively with formatting intact (no heavy docx.js mapping
+   needed for a document of this complexity). */
+function downloadDOCX() {
+  const errs = validateForm();
+  if (errs.length) { showValidationModal(errs); return; }
+  renderDocument();
+  const header = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:w="urn:schemas-microsoft-com:office:word"
+xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8">
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View>
+<w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+<style>${document.querySelector("style").innerHTML}
+body{background:#fff}
+@page{size:A4;margin:1.4cm}</style></head><body>`;
+  const blob = new Blob(["﻿", header + document.getElementById("docPreview").innerHTML + "</body></html>"],
+                        { type: "application/msword" });
+  saveAs(blob, fileBase() + ".doc");
+  toast("DOCX downloaded (opens in MS Word)");
+}
+
+/* ---------------------- 8. SAMPLE DATA / RESET / HELPERS ---------------------- */
+
+function loadSampleData() {
+  resetForm(true);
+  const set = (id, v) => document.getElementById(id).value = v;
+
+  set("projectName","Maybeck AVL Copilot");
+  set("phase","Phase 2 — UAT Build");
+  set("buildDate","2026-06-08");
+  set("environment","Staging");
+  set("appUrl","https://staging.maybeck-avl.example.com");
+  set("testingPeriod","25 May – 09 Jun 2026");
+  set("preparedBy","Krutish Ruparelia");
+  set("preparedByRole","Sr. QA Engineer");
+  set("clientName","Maybeck Production Systems");
+  set("projectManager","A. Sharma");
+  set("companyName","Simform Solutions");
+  set("projectOverview","This sign-off covers the Phase 2 UAT build of the Maybeck AVL Copilot platform. QA executed functional, regression, cross-browser and AI-response validation across all in-scope modules. The build is considered stable for client UAT, with minor open observations documented below.");
+
+  set("browserCoverage","Chrome 126, Edge 125, Safari 17, Firefox 127");
+  set("deviceCoverage","Desktop (Win/Mac), iPhone 15 Pro, Samsung Galaxy S24, iPad Air");
+  set("paymentGateway","Stripe (test mode)");
+  set("testingTools","Postman, BrowserStack, Playwright, Zoho Projects (defect tracking)");
+
+  document.querySelectorAll("#scopeGrid input").forEach((c,i)=> c.checked = i < 7);
+  set("scopeOther","Email Notifications");
+
+  addModuleRow({name:"Authentication", features:"Login, signup, password reset, session expiry, SSO", status:"Passed"});
+  addModuleRow({name:"Chat / AI Assistant", features:"Streaming responses, history, file context, retry handling", status:"Passed with Observations"});
+  addModuleRow({name:"RAG Intelligence", features:"Document ingestion, citation accuracy, fallback answers", status:"Passed"});
+  addModuleRow({name:"Dashboard & Usage", features:"Usage charts, quota limits, export", status:"Passed"});
+  addModuleRow({name:"Admin Panel", features:"User management, roles, audit logs", status:"Passed"});
+  addModuleRow({name:"Payment & Checkout", features:"Plan upgrade, invoices, webhooks", status:"Partially Tested"});
+
+  addTestTypeRow({type:"Functional Testing", coverage:"All in-scope modules, 412 test cases executed, 96% pass"});
+  addTestTypeRow({type:"Regression Testing", coverage:"Full regression suite on RC build (Cycle 3)"});
+  addTestTypeRow({type:"Cross-Browser / Device", coverage:"4 browsers, 4 device profiles via BrowserStack"});
+  addTestTypeRow({type:"API Testing", coverage:"Postman collection — 138 endpoints validated"});
+  addTestTypeRow({type:"AI Response Validation", coverage:"RAG citation accuracy & hallucination spot-checks (150 prompts)"});
+
+  set("stableFeatures",
+`Authentication: Login, signup, password reset and SSO all stable across browsers
+Chat: Streaming responses, conversation history and file-context chat working as expected
+RAG: Citations resolve to correct source documents; fallback messaging verified
+Dashboard: Usage metrics and quota enforcement accurate against backend data
+Admin: Role-based access control verified for all 4 roles`);
+
+  addObsRow({area:"Payment & Checkout", severity:"Medium", observation:"Webhook retry occasionally delayed beyond 30s on plan downgrade", status:"Fix planned — Sprint 14"});
+  addObsRow({area:"Chat UI", severity:"Low", observation:"Minor scroll jump when switching conversations on Safari", status:"Open — cosmetic"});
+  addObsRow({area:"Admin Panel", severity:"Low", observation:"Audit log export limited to 5,000 rows", status:"Accepted limitation"});
+
+  addRiskRow({risk:"Payment webhooks not fully verified in live mode", reco:"Run a controlled live-mode payment test before production release"});
+  addRiskRow({risk:"AI responses depend on third-party LLM availability", reco:"Confirm rate-limit handling and fallback messaging in production config"});
+
+  set("finalStatus","Conditional Sign-Off");
+  set("qaSignOffBy","Krutish Ruparelia");
+  set("qaRole","Sr. QA Engineer");
+  set("signOffDate","2026-06-10");
+  set("soEnvironment","Staging");
+  set("buildRelease","v2.4.0-rc1");
+  set("soProjectManager","A. Sharma");
+  set("clientRep","J. Maybeck");
+  set("overallQaStatus","Stable for UAT — 3 minor observations open, none blocking");
+  set("additionalNotes","Sign-off is conditional on closure of the payment webhook observation before the production release.");
+
+  document.querySelectorAll(".fsection").forEach(d => d.open = true);
+  renderDocument();
+  switchTab("generated");
+  toast("Sample data loaded");
+}
+
+function resetForm(silent) {
+  document.querySelectorAll(".form-panel input[type=text],.form-panel input[type=date],.form-panel input[type=url],.form-panel textarea")
+    .forEach(el => { el.value = ""; el.classList.remove("invalid"); });
+  document.getElementById("finalStatus").value = "";
+  document.getElementById("finalStatus").classList.remove("invalid");
+  document.querySelectorAll("#scopeGrid input").forEach(c => c.checked = false);
+  ["modulesList","testTypesList","obsList","riskList"].forEach(id =>
+    document.getElementById(id).innerHTML = "");
+  clearSignature("qa"); clearSignature("pm");
+  document.getElementById("errorBox").style.display = "none";
+  renderDocument();
+  if (!silent) toast("Form reset");
+}
+
+function switchTab(name) {
+  document.getElementById("tab-import").classList.toggle("active", name === "import");
+  document.getElementById("tab-generated").classList.toggle("active", name === "generated");
+  document.getElementById("tabBtnImport").classList.toggle("active", name === "import");
+  document.getElementById("tabBtnGenerated").classList.toggle("active", name === "generated");
+}
+
+/* tiny helpers */
+function esc(str){ return String(str ?? "")
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+let toastT;
+function toast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove("show"), 2400);
+}
+
+/* ---------------------- INITIALISE ---------------------- */
+// signature pads, one empty row in each dynamic list, today's date, preview
+initSigPad("qa", "sigCanvasQA", "sigHintQA", "sigNoteQA");
+initSigPad("pm", "sigCanvasPM", "sigHintPM", "sigNotePM");
+addModuleRow(); addTestTypeRow(); addObsRow(); addRiskRow();
+document.getElementById("signOffDate").valueAsDate = new Date();
+renderDocument();
+</script>
+</body>
+</html>
